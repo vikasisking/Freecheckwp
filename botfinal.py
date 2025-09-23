@@ -4,21 +4,37 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
+from threading import Thread
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from flask import Flask
 
+# ---------------- Configuration ----------------
 TOKEN = "7784541637:AAHoWGZ51eqZv-KW1wfsHZIrzcX4o9Kz57A"
 GROUP_ID = -1002990279188
 OWNER_ID = 7761576669
 STORE_FILE = Path("numbers_only.json")
 USERS_FILE = Path("users.json")
 DEV_URL = "https://t.me/hiden_25"
-CHANNEL_URL = "https://t.me/freeotpss" 
+CHANNEL_URL = "https://t.me/freeotpss"
 
 group_numbers: set[str] = set()
-users: set[int] = set() 
-save_lock = asyncio.Lock() 
+users: set[int] = set()
+save_lock = asyncio.Lock()
 
+# ---------------- Healthcheck Server ----------------
+flask_app = Flask("healthcheck")
+
+@flask_app.route("/")
+def home():
+    return "Bot is running ✅"
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+Thread(target=run_flask).start()
+
+# ---------------- Helper Functions ----------------
 def normalize_number(num: str, strip_country_code: bool = True) -> str:
     digits = re.sub(r"\D", "", str(num))
     if strip_country_code and len(digits) > 10:
@@ -54,6 +70,7 @@ async def save_store():
             encoding="utf-8",
         )
 
+# ---------------- Bot Handlers ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     users.add(user_id)
@@ -86,7 +103,6 @@ async def group_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             print(f"Added to group_numbers: {n}")
             await save_store()
 
-
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     if not doc or not doc.file_name.lower().endswith(".txt"):
@@ -108,20 +124,32 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         user_numbers.add(n)
                     else:
                         invalid_numbers.append(line.strip())
+
             print(f"User numbers: {user_numbers}")
             print(f"Invalid numbers: {invalid_numbers}")
-            print(f"Group numbers: {group_numbers}")
+            print(f"Group numbers before matching: {group_numbers}")
 
+            # Matching
+            matched = user_numbers & group_numbers
             unmatched = user_numbers - group_numbers
-            matched = user_numbers & group_numbers  
+
+            # Automatically add valid user_numbers to group_numbers
+            for n in user_numbers:
+                if n not in group_numbers:
+                    group_numbers.add(n)
+            await save_store()
+
             total_numbers = len(user_numbers)
             matched_count = len(matched)
             unmatched_count = len(unmatched)
+
             print(f"Matched numbers: {matched}")
             print(f"Unmatched numbers: {unmatched}")
-            unmatched_text = "Unmatched numbers:\n" + "\n".join(sorted(unmatched)) if unmatched else "Unmatched numbers: None"
+            print(f"Group numbers after update: {group_numbers}")
 
+            unmatched_text = "Unmatched numbers:\n" + "\n".join(sorted(unmatched)) if unmatched else "Unmatched numbers: None"
             await update.message.reply_text(unmatched_text)
+
             summary = (
                 f"✅ Found {unmatched_count} unmatched numbers.\n"
                 f"📊 Total numbers in file: {total_numbers}\n"
@@ -134,7 +162,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error processing file: {str(e)}")
-
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -157,6 +184,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await save_store()
     await update.message.reply_text(f"📢 Broadcast sent to {sent} users.")
 
+# ---------------- Main ----------------
 def main():
     load_store()
 
@@ -171,6 +199,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-
     main()
-
