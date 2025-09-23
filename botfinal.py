@@ -20,7 +20,7 @@ users: set[int] = set()
 save_lock = asyncio.Lock() 
 
 def normalize_number(num: str, strip_country_code: bool = True) -> str:
-    digits = re.sub(r"\D", "", str(num)
+    digits = re.sub(r"\D", "", str(num))
     if strip_country_code and len(digits) > 10:
         return digits[-10:]
     if len(digits) >= 8:
@@ -173,3 +173,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
