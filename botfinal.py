@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = "7784541637:AAHoWGZ51eqZv-KW1wfsHZIrzcX4o9Kz57A"
-GROUP_ID = -1001926462756
+GROUP_ID = -1002990279188
 OWNER_ID = 7761576669
 STORE_FILE = Path("numbers_only.json")
 USERS_FILE = Path("users.json")
@@ -171,4 +171,5 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
+
     main()
