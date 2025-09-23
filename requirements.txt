@@ -1,4 +1,3 @@
-python-telegram-bot>=20.0
 python-dotenv>=1.0.0
-black
-pylint
+python-telegram-bot==20.3
+Flask==2.3.4
