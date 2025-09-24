@@ -212,67 +212,6 @@ async def export_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
-async def connect_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /connect <file_path>")
-        return
-
-    file_path = context.args[0]
-    try:
-        if not Path(file_path).exists():
-            await update.message.reply_text(f"❌ File not found: {file_path}")
-            return
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                added = 0
-                for n in data:
-                    n_norm = normalize_number(str(n))
-                    if n_norm and n_norm not in group_numbers:
-                        group_numbers.add(n_norm)
-                        added += 1
-                await save_store()
-                await update.message.reply_text(f"✅ Added {added} numbers from {file_path}.")
-            else:
-                await update.message.reply_text("❌ Invalid JSON format (expected a list).")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-
-async def connect_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /connect_id <file_path>")
-        return
-
-    file_path = context.args[0]
-    try:
-        if not Path(file_path).exists():
-            await update.message.reply_text(f"❌ File not found: {file_path}")
-            return
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                added = 0
-                for uid in data:
-                    if isinstance(uid, int) and uid not in users:
-                        users.add(uid)
-                        added += 1
-                await save_store()
-                await update.message.reply_text(f"✅ Added {added} user IDs from {file_path}.")
-            else:
-                await update.message.reply_text("❌ Invalid JSON format (expected a list).")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-
 # ---------------- Main ----------------
 def main():
     load_store()
@@ -280,11 +219,9 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("export_id", export_ids))
     app.add_handler(CommandHandler("export_num", export_numbers))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler("connect", connect_numbers))
-    app.add_handler(CommandHandler("connect_id", connect_ids))
     app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), handle_file))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_number_handler))
 
@@ -293,4 +230,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
