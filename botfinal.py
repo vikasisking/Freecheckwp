@@ -1,232 +1,152 @@
-import re
-import json
-import asyncio
 import os
-import tempfile
-from pathlib import Path
-from threading import Thread
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from flask import Flask
+import re
+import logging
+import sqlite3
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ---------------- Configuration ----------------
-TOKEN = "7784541637:AAHoWGZ51eqZv-KW1wfsHZIrzcX4o9Kz57A"
-GROUP_ID = -1002990279188
-OWNER_ID = 7761576669
-STORE_FILE = Path("numbers_only.json")
-USERS_FILE = Path("users.json")
-DEV_URL = "https://t.me/hiden_25"
-CHANNEL_URL = "https://t.me/freeotpss"
+# Configuration
+TOKEN = os.getenv("BOT_TOKEN", "7784541637:AAFLIOZltZslKEjEuiYj_O33OpoOZ2lE7EE")  # Set your bot token in environment variables
+GROUP_ID = -1002990279188 # Set your private group ID (e.g., -1001234567890)
+NUMBER_PATTERN = r'^\d{8,13}$'  # Regex for 8-13 digit numbers
+DB_FILE = "group_numbers.db"  # SQLite database for storing group numbers
 
-group_numbers: set[str] = set()
-users: set[int] = set()
-save_lock = asyncio.Lock()
+# Setup logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ---------------- Healthcheck Server ----------------
-flask_app = Flask("healthcheck")
+# Initialize SQLite database
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY KEY)")
+    conn.commit()
+    conn.close()
 
-@flask_app.route("/")
-def home():
-    return "Bot is running ✅"
+# Add a number to the database
+def add_group_number(num):
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        conn.execute("INSERT OR IGNORE INTO group_numbers (number) VALUES (?)", (num,))
+        conn.commit()
+        logger.info(f"Added number to database: {num}")
+    except Exception as e:
+        logger.error(f"Error adding number to database: {e}")
+    finally:
+        conn.close()
 
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+# Load group numbers from the database
+def load_group_numbers():
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cursor = conn.execute("SELECT number FROM group_numbers")
+        numbers = {row[0] for row in cursor.fetchall()}
+        return numbers
+    except Exception as e:
+        logger.error(f"Error loading group numbers: {e}")
+        return set()
+    finally:
+        conn.close()
 
-Thread(target=run_flask).start()
-
-# ---------------- Helper Functions ----------------
-def normalize_number(num: str, strip_country_code: bool = True) -> str:
-    digits = re.sub(r"\D", "", str(num))
-    if strip_country_code and len(digits) > 10:
-        return digits[-10:]
-    if len(digits) >= 8:
-        return digits
-    return ""
-
-def load_store():
-    if STORE_FILE.exists():
-        try:
-            data = json.loads(STORE_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                group_numbers.update(data)
-        except Exception as e:
-            print(f"Error loading numbers_only.json: {e}")
-    if USERS_FILE.exists():
-        try:
-            data = json.loads(USERS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                users.update(data)
-        except Exception as e:
-            print(f"Error loading users.json: {e}")
-
-async def save_store():
-    async with save_lock:
-        STORE_FILE.write_text(
-            json.dumps(sorted(group_numbers), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        USERS_FILE.write_text(
-            json.dumps(sorted(users), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-# ---------------- Bot Handlers ----------------
+# Start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    users.add(user_id)
-    await save_store()
-
-    text = (
-        "👋 Welcome!\n\n"
-        "📂 Send me a TXT file (one number per line). I will compare it with "
-        "the group numbers and return unmatched numbers as text.\n\n"
-        "⚡ Features:\n"
-        "• Compare numbers quickly\n"
-        "• Get unmatched numbers in text"
+    if update.message.chat.type != 'private':
+        return
+    await update.message.reply_text(
+        "Welcome! I'm an admin bot in a private group. Send me a .txt file containing numbers "
+        "(one per line, 8-13 digits). I'll compare them with the numbers sent in the group and "
+        "return the ones that are in your file but not in the group."
     )
 
-    keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("👨‍💻 Developer", url=DEV_URL)],
-            [InlineKeyboardButton("📢 Main Channel", url=CHANNEL_URL)],
-        ]
-    )
+# Handler for messages in the group (only process valid 8-13 digit numbers)
+async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat_id != int(GROUP_ID):
+        return
+    text = update.message.text.strip()
+    if re.match(NUMBER_PATTERN, text):
+        add_group_number(text)
+    else:
+        logger.debug(f"Ignored invalid message in group: {text}")
 
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-async def group_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id == GROUP_ID:
-        text = (update.message.text or "").strip()
-        n = normalize_number(text, strip_country_code=True)
-        if n and n not in group_numbers:
-            group_numbers.add(n)
-            print(f"Added to group_numbers: {n}")
-            await save_store()
-
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if not doc or not doc.file_name.lower().endswith(".txt"):
-        await update.message.reply_text("❌ Please send a valid TXT file.")
+# Handler for .txt files sent in private chat
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat.type != 'private':
+        return
+    document = update.message.document
+    if not document.file_name.lower().endswith(".txt"):
+        await update.message.reply_text("Please send a .txt file only.")
         return
 
+    # Download the file
+    file = await document.get_file()
+    file_path = await file.download_to_drive(custom_path=document.file_name)
+
+    # Read numbers from the file
+    file_numbers = set()
     try:
-        f = await doc.get_file()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            local = Path(tmp_dir) / "input.txt"
-            await f.download_to_drive(local)
-            print(f"Downloaded file to: {local}")
-            user_numbers = set()
-            invalid_numbers = []
-            with open(local, "r", encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    n = normalize_number(line, strip_country_code=True)
-                    if n:
-                        user_numbers.add(n)
-                    else:
-                        invalid_numbers.append(line.strip())
-
-            print(f"User numbers: {user_numbers}")
-            print(f"Invalid numbers: {invalid_numbers}")
-            print(f"Group numbers before matching: {group_numbers}")
-
-            # Matching
-            matched = user_numbers & group_numbers
-            unmatched = user_numbers - group_numbers
-
-            # Automatically add valid user_numbers to group_numbers
-            for n in user_numbers:
-                if n not in group_numbers:
-                    group_numbers.add(n)
-            await save_store()
-
-            total_numbers = len(user_numbers)
-            matched_count = len(matched)
-            unmatched_count = len(unmatched)
-
-            print(f"Matched numbers: {matched}")
-            print(f"Unmatched numbers: {unmatched}")
-            print(f"Group numbers after update: {group_numbers}")
-
-            unmatched_text = "Unmatched numbers:\n" + "\n".join(sorted(unmatched)) if unmatched else "Unmatched numbers: None"
-            await update.message.reply_text(unmatched_text)
-
-            summary = (
-                f"✅ Found {unmatched_count} unmatched numbers.\n"
-                f"📊 Total numbers in file: {total_numbers}\n"
-                f"✅ Registered numbers: {matched_count}\n"
-                f"🚫 Not registered numbers: {unmatched_count}"
-            )
-            if invalid_numbers:
-                summary += f"\n⚠️ Ignored {len(invalid_numbers)} invalid numbers."
-            await update.message.reply_text(summary)
-
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                num = line.strip()
+                if re.match(NUMBER_PATTERN, num):
+                    file_numbers.add(num)
+                else:
+                    logger.warning(f"Ignored invalid number in file: {num}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error processing file: {str(e)}")
-
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized.")
+        logger.error(f"Error reading file: {e}")
+        await update.message.reply_text("Error reading the file. Please ensure it's a valid .txt file.")
+        os.remove(file_path)
         return
 
-    if not context.args:
-        await update.message.reply_text("Usage: /broadcast <message>")
+    os.remove(file_path)  # Clean up
+
+    if not file_numbers:
+        await update.message.reply_text("No valid numbers (8-13 digits) found in the file.")
         return
 
-    msg = " ".join(context.args)
-    sent = 0
-    for uid in users.copy():
-        try:
-            await context.bot.send_message(chat_id=uid, text=msg)
-            sent += 1
-        except:
-            users.discard(uid)
+    # Load group numbers from database
+    group_numbers = load_group_numbers()
 
-    await save_store()
-    await update.message.reply_text(f"📢 Broadcast sent to {sent} users.")
+    # Find unmatched numbers (in file but not in group)
+    unmatched = file_numbers - group_numbers
 
-async def export_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized.")
+    if not unmatched:
+        await update.message.reply_text("All numbers from the file are already in the group.")
         return
-    try:
-        if USERS_FILE.exists():
-            with open(USERS_FILE, "r", encoding="utf-8") as f:
-                data = f.read()
-            await update.message.reply_text(f"📄 users.json:\n{data}")
-        else:
-            await update.message.reply_text("❌ users.json not found.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
 
-async def export_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized.")
-        return
-    try:
-        if STORE_FILE.exists():
-            with open(STORE_FILE, "r", encoding="utf-8") as f:
-                data = f.read()
-            await update.message.reply_text(f"📄 numbers_only.json:\n{data}")
-        else:
-            await update.message.reply_text("❌ numbers_only.json not found.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+    # Prepare output
+    output_text = "Unmatched numbers (in file but not in group):\n\n" + "\n".join(sorted(unmatched))
 
-# ---------------- Main ----------------
+    # Send as text if short, else as file
+    if len(output_text) < 4096:  # Telegram message limit
+        await update.message.reply_text(output_text)
+    else:
+        output_file = "unmatched_numbers.txt"
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(unmatched)))
+        await update.message.reply_document(document=output_file, caption="Unmatched numbers")
+        os.remove(output_file)
+
+# Error handler
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error: {context.error}")
+    if update and update.message and update.message.chat.type == 'private':
+        await update.message.reply_text("An error occurred. Please try again later.")
+
 def main():
-    load_store()
+    # Initialize the database
+    init_db()
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    # Initialize the application
+    application = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler("export_id", export_ids))
-    app.add_handler(CommandHandler("export_num", export_numbers))
-    app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), handle_file))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_number_handler))
+    # Handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(int(GROUP_ID)), handle_group_message))
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_document))
+    application.add_error_handler(error_handler)
 
-    print("Bot starting...")
-    app.run_polling()
+    # Start polling
+    logger.info("Starting bot...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
