@@ -7,7 +7,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Configuration
 TOKEN = os.getenv("BOT_TOKEN", "7784541637:AAFLIOZltZslKEjEuiYj_O33OpoOZ2lE7EE")  # Set your bot token in environment variables
-GROUP_ID = -1002990279188 # Set your private group ID (e.g., -1001234567890)
+GROUP_ID = -1002990279188 # Set your 
+NUMBER_BOT_ID = os.getenv("NUMBER_BOT_ID", "8361669889")  # Set the Telegram user ID of the number-sending bot
 NUMBER_PATTERN = r'^\d{8,13}$'  # Regex for 8-13 digit numbers
 DB_FILE = "group_numbers.db"  # SQLite database for storing group numbers
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Initialize SQLite database
 def init_db():
     conn = sqlite3.connect(DB_FILE)
-    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY KEY)")
+    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY_KEY)")
     conn.commit()
     conn.close()
 
@@ -53,19 +54,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "Welcome! I'm an admin bot in a private group. Send me a .txt file containing numbers "
-        "(one per line, 8-13 digits). I'll compare them with the numbers sent in the group and "
-        "return the ones that are in your file but not in the group."
+        "(one per line, 8-13 digits). I'll compare them with the numbers sent by the designated bot "
+        "in the group and return the ones that are in your file but not in the group."
     )
 
-# Handler for messages in the group (only process valid 8-13 digit numbers)
+# Handler for messages in the group (only process numbers from NUMBER_BOT_ID)
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat_id != int(GROUP_ID):
+        return
+    # Check if the message is from the designated number-sending bot
+    if not update.message.from_user or str(update.message.from_user.id) != NUMBER_BOT_ID:
+        logger.debug(f"Ignored message from user ID {update.message.from_user.id if update.message.from_user else 'unknown'}")
         return
     text = update.message.text.strip()
     if re.match(NUMBER_PATTERN, text):
         add_group_number(text)
     else:
-        logger.debug(f"Ignored invalid message in group: {text}")
+        logger.debug(f"Ignored invalid number from number bot: {text}")
 
 # Handler for .txt files sent in private chat
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -134,6 +139,11 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     # Initialize the database
     init_db()
+
+    # Validate configuration
+    if not NUMBER_BOT_ID:
+        logger.error("NUMBER_BOT_ID is not set. Please set the environment variable.")
+        return
 
     # Initialize the application
     application = Application.builder().token(TOKEN).build()
