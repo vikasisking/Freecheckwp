@@ -19,12 +19,20 @@ logger = logging.getLogger(__name__)
 # Initialize SQLite database
 def init_db():
     conn = sqlite3.connect(DB_FILE)
-    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY_KEY)")
+    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY KEY)")
     conn.commit()
     conn.close()
 
+# Normalize number (remove whitespace, ensure string)
+def normalize_number(num):
+    return str(num).strip()
+
 # Add a number to the database
 def add_group_number(num):
+    num = normalize_number(num)
+    if not re.match(NUMBER_PATTERN, num):
+        logger.warning(f"Invalid number format: {num}")
+        return
     conn = sqlite3.connect(DB_FILE)
     try:
         conn.execute("INSERT OR IGNORE INTO group_numbers (number) VALUES (?)", (num,))
@@ -40,7 +48,8 @@ def load_group_numbers():
     conn = sqlite3.connect(DB_FILE)
     try:
         cursor = conn.execute("SELECT number FROM group_numbers")
-        numbers = {row[0] for row in cursor.fetchall()}
+        numbers = {normalize_number(row[0]) for row in cursor.fetchall()}
+        logger.info(f"Loaded {len(numbers)} numbers from database: {numbers}")
         return numbers
     except Exception as e:
         logger.error(f"Error loading group numbers: {e}")
@@ -54,9 +63,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "Welcome! I'm an admin bot in a private group. Send me a .txt file containing numbers "
-        "(one per line, 8-13 digits). I'll compare them with the numbers sent by the designated bot "
-        "in the group and return the ones that are in your file but not in the group."
+        "(one per line, 8-13 digits). I'll compare them with numbers sent by the designated bot "
+        "in the group and return the unmatched ones (in your file but not in the group)."
     )
+
+# Debug command to show database contents (for private chat)
+async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat.type != 'private':
+        return
+    numbers = load_group_numbers()
+    if not numbers:
+        await update.message.reply_text("No numbers in the database.")
+        return
+    output = f"Current numbers in database ({len(numbers)}):\n\n" + "\n".join(sorted(numbers))
+    if len(output) < 4096:
+        await update.message.reply_text(output)
+    else:
+        with open("debug_numbers.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(numbers)))
+        await update.message.reply_document(document="debug_numbers.txt", caption="Database numbers")
+        os.remove("debug_numbers.txt")
 
 # Handler for messages in the group (only process numbers from NUMBER_BOT_ID)
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,8 +92,9 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message.from_user or str(update.message.from_user.id) != NUMBER_BOT_ID:
         logger.debug(f"Ignored message from user ID {update.message.from_user.id if update.message.from_user else 'unknown'}")
         return
-    text = update.message.text.strip()
+    text = normalize_number(update.message.text)
     if re.match(NUMBER_PATTERN, text):
+        logger.info(f"Received valid number from number bot: {text}")
         add_group_number(text)
     else:
         logger.debug(f"Ignored invalid number from number bot: {text}")
@@ -90,7 +117,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
-                num = line.strip()
+                num = normalize_number(line)
                 if re.match(NUMBER_PATTERN, num):
                     file_numbers.add(num)
                 else:
@@ -107,11 +134,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No valid numbers (8-13 digits) found in the file.")
         return
 
+    logger.info(f"File contains {len(file_numbers)} numbers: {file_numbers}")
+
     # Load group numbers from database
     group_numbers = load_group_numbers()
 
     # Find unmatched numbers (in file but not in group)
     unmatched = file_numbers - group_numbers
+
+    logger.info(f"Comparison result - File numbers: {len(file_numbers)}, Group numbers: {len(group_numbers)}, Unmatched: {len(unmatched)}")
+    logger.debug(f"Unmatched numbers: {unmatched}")
 
     if not unmatched:
         await update.message.reply_text("All numbers from the file are already in the group.")
@@ -141,8 +173,8 @@ def main():
     init_db()
 
     # Validate configuration
-    if not NUMBER_BOT_ID:
-        logger.error("NUMBER_BOT_ID is not set. Please set the environment variable.")
+    if not TOKEN or not GROUP_ID or not NUMBER_BOT_ID:
+        logger.error("Missing required environment variables: BOT_TOKEN, GROUP_ID, or NUMBER_BOT_ID")
         return
 
     # Initialize the application
@@ -150,6 +182,7 @@ def main():
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("debug", debug))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(int(GROUP_ID)), handle_group_message))
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_document))
     application.add_error_handler(error_handler)
