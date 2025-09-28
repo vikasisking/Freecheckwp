@@ -21,7 +21,7 @@ DB_FILE = "groupnumbers.db"
 # Pyrogram UserBot
 API_ID = int(os.getenv("API_ID", "22922489"))        # your API ID
 API_HASH = os.getenv("API_HASH", "c9188fc0a202b2b3941d02dc9cc0cc84")  # your API HASH
-SESSION_STRING = os.getenv("SESSION_STRING", "BQFdxPkAurkRwLKnKBh_9EJh50vgSI8lT_FF5PYRLr_ShgpUkrxGobpUMEYTiCE0-ZybiEzErd5d2mqY3-zcig5hj50DN-f3Nt0pSzGnDvZSEDutEyGEgQdfePST5F4qJjYda782z3RmtrCZTX7JmMW1qPzpCyW7eJGgzwyHohvzmik0uANJt_A8z5hPABJwkAKtFIk8Eat6autjSPCJUIZNGGOwZPRzahkw4Ftx3wQKBaoezKwVoPWrP36PDEFtGfw38mqpduu9A6xV87Y8rTtRlmKk_gUBuKsksf-9fQlznNnfap3rZfHpuTq8N2rl049SElb2CPzy1NI5KTcD2wl-bQDClwAAAAHib6fLAA")
+SESSION_STRING = os.getenv("SESSION_STRING", "0")
 ALLOWED_CHATS = []  # empty = all groups
 # =============================
 
@@ -164,3 +164,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
