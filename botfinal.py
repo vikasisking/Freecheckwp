@@ -24,6 +24,12 @@ API_HASH = os.getenv("API_HASH", "c9188fc0a202b2b3941d02dc9cc0cc84")  # your API
 SESSION_STRING = os.getenv("SESSION_STRING", "0")
 ALLOWED_CHATS = []  # empty = all groups
 # =============================
+pyro = PyroClient(
+    name="userbot",                # सिर्फ internal नाम
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING  # यहां दो
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,
@@ -164,4 +170,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
