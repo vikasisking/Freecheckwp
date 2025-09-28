@@ -157,16 +157,18 @@ async def echo_handler(client: PyroClient, message: PyroMessage):
 # ========== RUN BOTH TOGETHER ==========
 async def main():
     admin_bot = build_admin_bot()
-    # Run both applications concurrently
+
+    # Run both concurrently
     await asyncio.gather(
         admin_bot.initialize(),
         pyro.start(),
     )
-    # Start polling in parallel
-    await asyncio.gather(
-        admin_bot.start(),
-        pyro.idle(),
-    )
 
+    # Start polling for admin bot
+    await admin_bot.start()
+
+    # Keep running forever (pyrogram messages handle karega background me)
+    await asyncio.Event().wait()
 if __name__ == "__main__":
     asyncio.run(main())
+
