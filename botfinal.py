@@ -21,14 +21,16 @@ DB_FILE = "groupnumbers.db"
 # Pyrogram UserBot
 API_ID = int(os.getenv("API_ID", "22922489"))        # your API ID
 API_HASH = os.getenv("API_HASH", "c9188fc0a202b2b3941d02dc9cc0cc84")  # your API HASH
-SESSION_STRING = os.getenv("SESSION_STRING", "0")
+SESSION_STRING = os.getenv("SESSION_STRING", "0")  # yahan apna pyrogram session string do
 ALLOWED_CHATS = []  # empty = all groups
 # =============================
+
+# Pyrogram client with session string
 pyro = PyroClient(
-    name="userbot",                # सिर्फ internal नाम
+    name="userbot",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING  # यहां दो
+    session_string=SESSION_STRING
 )
 
 # Setup logging
@@ -130,8 +132,6 @@ def build_admin_bot():
     return application
 
 # ========== USERBOT (Pyrogram) ==========
-pyro = PyroClient(SESSION_STRING, api_id=API_ID, api_hash=API_HASH)
-
 def chat_allowed(chat_id, chat_username=None):
     if not ALLOWED_CHATS:
         return True
@@ -170,5 +170,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
