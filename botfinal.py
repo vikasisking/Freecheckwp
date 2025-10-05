@@ -60,20 +60,24 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matched = [num for num in file_numbers if num in mongo_numbers]
     unmatched = [num for num in file_numbers if num not in mongo_numbers]
 
-    # --- Send summary + unmatched numbers directly ---
-    summary = (
-        f"📊 **Comparison Report**\n\n"
-        f"📁 Total Numbers in File: `{len(file_numbers)}`\n"
-        f"✅ Registered Numbers: `{len(matched)}`\n"
-        f"❌ Not Registered Numbers: `{len(unmatched)}`\n"
-    )
+    # --- Prepare summary ---
+    summary_lines = [
+        "📊 **Comparison Report**",
+        "",
+        f"📁 Total Numbers in File: `{len(file_numbers)}`",
+        f"✅ Registered Numbers: `{len(matched)}`",
+        f"❌ Not Registered Numbers: `{len(unmatched)}`"
+    ]
 
     if unmatched:
-        # Limit message size if too many numbers
+        summary_lines.append("\n📌 Unmatched Numbers:")
+        # Limit Telegram message size to ~4000 chars
         unmatched_text = "\n".join(unmatched)
         if len(unmatched_text) > 3500:
             unmatched_text = unmatched_text[:3500] + "\n…and more"
-        summary += f"\n📌 Unmatched Numbers:\n<code>{unmatched_text}</code>"
+        summary_lines.append(f"<code>{unmatched_text}</code>")
+
+    summary = "\n".join(summary_lines)
 
     await update.message.reply_text(summary, parse_mode="HTML")
 
@@ -94,5 +98,6 @@ if __name__ == "__main__":
 
     # Telegram bot main thread
     start_telegram_bot()
+
 
 
