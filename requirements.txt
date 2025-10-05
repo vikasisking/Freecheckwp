@@ -2,4 +2,4 @@ python-dotenv
 python-telegram-bot
 Flask
 pyrogram
-tgcrypto
+pymongo
