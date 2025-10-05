@@ -62,24 +62,24 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Prepare summary ---
     summary_lines = [
-        "📊 **Comparison Report**",
+        "📊 Comparison Report",
         "",
-        f"📁 Total Numbers in File: `{len(file_numbers)}`",
-        f"✅ Registered Numbers: `{len(matched)}`",
-        f"❌ Not Registered Numbers: `{len(unmatched)}`"
+        f"📁 Total Numbers in File: {len(file_numbers)}",
+        f"✅ Registered Numbers: {len(matched)}",
+        f"❌ Not Registered Numbers: {len(unmatched)}"
     ]
 
     if unmatched:
         summary_lines.append("\n📌 Unmatched Numbers:")
-        # Limit Telegram message size to ~4000 chars
+        # Limit Telegram message size
         unmatched_text = "\n".join(unmatched)
         if len(unmatched_text) > 3500:
             unmatched_text = unmatched_text[:3500] + "\n…and more"
-        summary_lines.append(f"<code>{unmatched_text}</code>")
+        summary_lines.append(unmatched_text)
 
     summary = "\n".join(summary_lines)
 
-    await update.message.reply_text(summary, parse_mode="HTML")
+    await update.message.reply_text(summary)
 
     # --- Cleanup ---
     os.remove(file_path)
@@ -98,6 +98,7 @@ if __name__ == "__main__":
 
     # Telegram bot main thread
     start_telegram_bot()
+
 
 
 
