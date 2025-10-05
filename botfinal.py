@@ -38,8 +38,8 @@ numbers_collection = db[COLLECTION_NAME]
 users_collection = db[USERS_COLLECTION]
 
 # --- Bot Config ---
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_IDS = [123456789]  # Replace with Telegram user IDs who are admins
+BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"
+ADMIN_IDS = [8093935563]  # Replace with Telegram user IDs who are admins
 
 # --- Utility Functions ---
 def save_user(user_id, username):
@@ -195,3 +195,4 @@ if __name__ == "__main__":
 
     # Telegram Bot main thread
     start_telegram_bot()
+
