@@ -1,174 +1,77 @@
 import os
-import re
-import logging
-import sqlite3
-import asyncio
+from telegram import Update, InputFile
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from pymongo import MongoClient
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+# ==== MongoDB Setup ====
+MONGO_URI = "mongodb+srv://number25:number25@cluster0.kdeklci.mongodb.net/"
+DB_NAME = "otp_database"
+COLLECTION_NAME = "numbers"
 
-from pyrogram import Client as PyroClient, filters as pyro_filters
-from pyrogram.types import Message as PyroMessage
+# ==== Telegram Bot Token ====
+BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"
 
-# ========== CONFIG ==========
-# Telegram Bot (admin bot)
-TOKEN = os.getenv("BOT_TOKEN", "7784541637:AAFyQ9jx1am7DA0LL2eOcfPPIzkmgqW3dmA")
-GROUP_ID = -1002990279188
-NUMBER_BOT_ID = os.getenv("NUMBER_BOT_ID", "8361669889")
-NUMBER_PATTERN = r'^\d{8,13}$'
-DB_FILE = "groupnumbers.db"
+# ==== MongoDB Client ====
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
 
-# Pyrogram UserBot
-API_ID = int(os.getenv("API_ID", "22922489"))        # your API ID
-API_HASH = os.getenv("API_HASH", "c9188fc0a202b2b3941d02dc9cc0cc84")  # your API HASH
-SESSION_STRING = os.getenv("SESSION_STRING", "0")  # yahan apna pyrogram session string do
-ALLOWED_CHATS = []  # empty = all groups
-# =============================
 
-# Pyrogram client with session string
-pyro = PyroClient(
-    name="userbot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=SESSION_STRING
-)
-
-# Setup logging
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-# ========== DATABASE ==========
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("CREATE TABLE IF NOT EXISTS group_numbers (number TEXT PRIMARY KEY)")
-    conn.commit()
-    conn.close()
-
-def normalize_number(num):
-    return str(num).strip()
-
-def add_group_number(num):
-    num = normalize_number(num)
-    if not re.match(NUMBER_PATTERN, num):
-        return
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("INSERT OR IGNORE INTO group_numbers (number) VALUES (?)", (num,))
-    conn.commit()
-    conn.close()
-
-def load_group_numbers():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.execute("SELECT number FROM group_numbers")
-    numbers = {normalize_number(row[0]) for row in cursor.fetchall()}
-    conn.close()
-    return numbers
-
-# ========== ADMIN BOT (python-telegram-bot) ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat.type != 'private':
-        return
-    await update.message.reply_text(
-        "Welcome! Send me a .txt file of numbers. "
-        "I'll compare with group numbers and return unmatched."
+    await update.message.reply_text("📁 Send me a .txt file containing numbers to compare with MongoDB.")
+
+
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file = await update.message.document.get_file()
+    file_path = f"{file.file_unique_id}.txt"
+    await file.download_to_drive(file_path)
+
+    # Read numbers from file
+    with open(file_path, "r") as f:
+        file_numbers = [line.strip() for line in f if line.strip().isdigit()]
+
+    # Fetch MongoDB numbers
+    mongo_numbers = {doc["number"] for doc in collection.find({}, {"number": 1})}
+
+    # Compare
+    unmatched = [num for num in file_numbers if num not in mongo_numbers]
+    matched = [num for num in file_numbers if num in mongo_numbers]
+
+    # Stats
+    total = len(file_numbers)
+    unmatched_count = len(unmatched)
+    matched_count = len(matched)
+
+    # Create unmatched.txt
+    unmatched_file = "unmatched_numbers.txt"
+    with open(unmatched_file, "w") as f:
+        f.write("\n".join(unmatched) if unmatched else "All numbers matched with MongoDB ✅")
+
+    # Send stats
+    summary = (
+        f"📊 **Comparison Report**\n\n"
+        f"📁 Total Numbers in File: `{total}`\n"
+        f"❌ Unmatched Numbers: `{unmatched_count}`\n"
+        f"✅ Matched Numbers: `{matched_count}`"
     )
 
-async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat.type != 'private':
-        return
-    numbers = load_group_numbers()
-    if not numbers:
-        await update.message.reply_text("No numbers in database.")
-        return
-    output = f"Numbers ({len(numbers)}):\n" + "\n".join(sorted(numbers))
-    await update.message.reply_text(output[:4000])
+    await update.message.reply_text(summary, parse_mode="Markdown")
 
-async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat_id != int(GROUP_ID):
-        return
-    if not update.message.from_user or str(update.message.from_user.id) != NUMBER_BOT_ID:
-        return
-    text = normalize_number(update.message.text)
-    if re.match(NUMBER_PATTERN, text):
-        add_group_number(text)
+    # Send unmatched file
+    await update.message.reply_document(InputFile(unmatched_file))
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat.type != 'private':
-        return
-    document = update.message.document
-    if not document.file_name.lower().endswith(".txt"):
-        await update.message.reply_text("Send a .txt file only.")
-        return
-    file = await document.get_file()
-    path = await file.download_to_drive(custom_path=document.file_name)
+    # Cleanup
+    os.remove(file_path)
+    os.remove(unmatched_file)
 
-    file_numbers = set()
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            num = normalize_number(line)
-            if re.match(NUMBER_PATTERN, num):
-                file_numbers.add(num)
-    os.remove(path)
 
-    group_numbers = load_group_numbers()
-    unmatched = file_numbers - group_numbers
-    if not unmatched:
-        await update.message.reply_text("All numbers from file are already in group.")
-        return
-    text = "Unmatched:\n" + "\n".join(sorted(unmatched))
-    await update.message.reply_text(text[:4000])
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Document.FILE_EXTENSION("txt"), handle_file))
+    print("🤖 Bot is running...")
+    app.run_polling()
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Error: {context.error}")
 
-def build_admin_bot():
-    init_db()
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("debug", debug))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(int(GROUP_ID)), handle_group_message))
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_document))
-    application.add_error_handler(error_handler)
-    return application
-
-# ========== USERBOT (Pyrogram) ==========
-def chat_allowed(chat_id, chat_username=None):
-    if not ALLOWED_CHATS:
-        return True
-    if str(chat_id) in [str(x) for x in ALLOWED_CHATS]:
-        return True
-    if chat_username and chat_username in ALLOWED_CHATS:
-        return True
-    return False
-
-@pyro.on_message(pyro_filters.group & ~pyro_filters.me)
-async def echo_handler(client: PyroClient, message: PyroMessage):
-    try:
-        if message.service:
-            return
-        chat = message.chat
-        if not chat_allowed(chat.id, getattr(chat, "username", None)):
-            return
-        await message.copy(chat.id)
-        logger.info(f"Echoed in {chat.id}")
-    except Exception as e:
-        logger.error(f"Userbot error: {e}")
-
-# ========== RUN BOTH TOGETHER ==========
-async def main():
-    admin_bot = build_admin_bot()
-
-    # Run both concurrently
-    await asyncio.gather(
-        admin_bot.initialize(),
-        pyro.start(),
-    )
-
-    # Start polling for admin bot
-    await admin_bot.start()
-
-    # Keep running forever (pyrogram messages handle karega background me)
-    await asyncio.Event().wait()
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    main()
