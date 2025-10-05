@@ -76,10 +76,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(summary, parse_mode="Markdown")
 
     # --- Send unmatched file if exists ---
+    # --- Send unmatched file if exists ---
     if unmatched:
         await update.message.reply_document(
-            InputFile(unmatched_file, filename="unmatched_numbers.txt")
-        )
+            document=InputFile(unmatched_file, filename="unmatched_numbers.txt"),
+            caption="📄 Unmatched Numbers"
+    )
 
     # --- Cleanup ---
     os.remove(file_path)
@@ -99,3 +101,4 @@ if __name__ == "__main__":
 
     # Telegram bot main thread
     start_telegram_bot()
+
