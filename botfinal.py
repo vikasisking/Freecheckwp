@@ -60,32 +60,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matched = [num for num in file_numbers if num in mongo_numbers]
     unmatched = [num for num in file_numbers if num not in mongo_numbers]
 
-    # --- Save unmatched numbers ---
-    unmatched_file = f"/tmp/unmatched_numbers_{file.file_unique_id}.txt"
-    with open(unmatched_file, "w") as f:
-        f.write("\n".join(unmatched) if unmatched else "All numbers matched ✅")
-
-    # --- Send summary ---
+    # --- Send summary + unmatched numbers directly ---
     summary = (
         f"📊 **Comparison Report**\n\n"
         f"📁 Total Numbers in File: `{len(file_numbers)}`\n"
         f"✅ Registered Numbers: `{len(matched)}`\n"
-        f"❌ Not Registered Numbers: `{len(unmatched)}`"
+        f"❌ Not Registered Numbers: `{len(unmatched)}`\n"
     )
 
-    await update.message.reply_text(summary, parse_mode="Markdown")
-
-    # --- Send unmatched file if exists ---
-    # --- Send unmatched file if exists ---
     if unmatched:
-        await update.message.reply_document(
-            document=InputFile(unmatched_file, filename="unmatched_numbers.txt"),
-            caption="📄 Unmatched Numbers"
-    )
+        # Limit message size if too many numbers
+        unmatched_text = "\n".join(unmatched)
+        if len(unmatched_text) > 3500:
+            unmatched_text = unmatched_text[:3500] + "\n…and more"
+        summary += f"\n📌 Unmatched Numbers:\n<code>{unmatched_text}</code>"
+
+    await update.message.reply_text(summary, parse_mode="HTML")
 
     # --- Cleanup ---
     os.remove(file_path)
-    os.remove(unmatched_file)
 
 def start_telegram_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -101,4 +94,5 @@ if __name__ == "__main__":
 
     # Telegram bot main thread
     start_telegram_bot()
+
 
