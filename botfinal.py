@@ -95,10 +95,6 @@ def make_pagination_keyboard(session_id: str, page: int, total_pages: int):
         buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"page:{session_id}:{page-1}"))
     else:
         buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"noop:{session_id}"))  # noop for disabled
-
-    # Back to menu
-    buttons.append(InlineKeyboardButton("🔙 Back to Menu", callback_data=f"back:{session_id}"))
-
     # Next
     if page < total_pages:
         buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"page:{session_id}:{page+1}"))
@@ -259,25 +255,7 @@ async def callback_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE
         # do nothing (disabled button)
         await query.answer()
         return
-
-    if action == "back":
-        # go back to main menu (edit message to show a simple menu)
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("☘ Channel", url="https://t.me/freeotpss")],
-            [InlineKeyboardButton("📁 Upload File", callback_data="noop:"+session_id)],
-            [InlineKeyboardButton("🔁 Start Over", callback_data="noop:"+session_id)]
-        ])
-        await query.edit_message_text(
-            "🔙 Back to menu. Send /start to see commands or upload another file.",
-            reply_markup=keyboard
-        )
-        # remove session to free memory
-        try:
-            del sessions[session_id]
-        except KeyError:
-            pass
-        return
-
+        
     if action == "page":
         # expected third part is page number
         if len(parts) < 3:
