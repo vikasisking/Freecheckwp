@@ -2,16 +2,16 @@ import os
 import logging
 import threading
 import uuid
-from datetime import datetime, timedelta
 from flask import Flask, Response
 from pymongo import MongoClient
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
+from datetime import datetime
 
 # -------------------------
 # Logging
@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # -------------------------
-# Flask Health Check
+# Flask for health check
 # -------------------------
 app = Flask(__name__)
 
@@ -30,7 +30,8 @@ def health():
 
 @app.route('/')
 def root():
-    return Response("Bot active ✅", status=200)
+    logger.info("Root endpoint requested")
+    return Response("OK", status=200)
 
 # -------------------------
 # MongoDB Config
@@ -48,250 +49,357 @@ users_collection = db[USERS_COLLECTION]
 # -------------------------
 # Bot Config
 # -------------------------
-BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"
-ADMIN_IDS = [8093935563]   # Replace with your admin Telegram ID
-PER_PAGE = 50
-SESSION_EXPIRY = timedelta(hours=1)
+BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"   # <-- replace
+ADMIN_IDS = [8093935563]             # <-- replace with your Telegram numeric admin IDs
 
 # -------------------------
-# Session Cache
+# In-memory sessions for pagination
+# Structure:
+# sessions = {
+#   session_id: {
+#       "chat_id": int,
+#       "user_id": int,
+#       "unmatched": [str,...],
+#       "per_page": 50,
+#       "created_at": datetime,
+#   }
+# }
 # -------------------------
 sessions = {}
+PER_PAGE = 50
 
 # -------------------------
-# Utilities
+# Utility helpers
 # -------------------------
 def save_user(user_id, username):
-    users_collection.update_one(
-        {"user_id": user_id},
-        {"$set": {"username": username or "", "last_seen": datetime.utcnow()}},
-        upsert=True
-    )
+    try:
+        users_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"username": username or "", "last_seen": datetime.utcnow()}},
+            upsert=True
+        )
+    except Exception as e:
+        logger.exception("save_user error: %s", e)
 
 def get_mongo_numbers():
-    return {doc["number"] for doc in numbers_collection.find({}, {"number": 1}) if "number" in doc}
+    try:
+        return {doc["number"] for doc in numbers_collection.find({}, {"number": 1}) if "number" in doc}
+    except Exception as e:
+        logger.exception("get_mongo_numbers error: %s", e)
+        return set()
 
-def make_pagination_keyboard(session_id, page, total_pages):
+def make_pagination_keyboard(session_id: str, page: int, total_pages: int):
     buttons = []
+    # Previous
     if page > 1:
-        buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page:{session_id}:{page-1}"))
+        buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"page:{session_id}:{page-1}"))
+    else:
+        buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"noop:{session_id}"))  # noop for disabled
+
+    # Back to menu
+    buttons.append(InlineKeyboardButton("🔙 Back to Menu", callback_data=f"back:{session_id}"))
+
+    # Next
     if page < total_pages:
         buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"page:{session_id}:{page+1}"))
-    return InlineKeyboardMarkup([buttons]) if buttons else None
+    else:
+        buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"noop:{session_id}"))
 
-def format_page_text(page_items, page, total_pages, total_count, matched_count):
-    head = (
-        f"📊 Comparison Report\n\n"
-        f"📁 Total Numbers in File: {total_count}\n"
-        f"✅ Registered Numbers: {matched_count}\n"
-        f"❌ Not Registered Numbers: {total_count - matched_count}\n\n"
-        f"📄 Page {page}/{total_pages}\n\n"
-    )
+    # Arrange in one row
+    keyboard = InlineKeyboardMarkup([buttons])
+    return keyboard
+
+def format_page_text(page_items, page: int, total_pages: int, total_count: int, matched_count: int):
+    header = [
+        "📊 Comparison Report",
+        "",
+        f"📁 Total Numbers in File: {total_count}",
+        f"✅ Registered Numbers: {matched_count}",
+        f"❌ Not Registered Numbers: {total_count - matched_count}",
+        "",
+        f"📌 Showing page {page} / {total_pages} (up to {PER_PAGE} per page)",
+        ""
+    ]
     body = "\n".join(page_items) if page_items else "(No unmatched numbers on this page)"
-    return head + body
-
-def cleanup_old_sessions():
-    now = datetime.utcnow()
-    expired = [sid for sid, s in sessions.items() if now - s["created_at"] > SESSION_EXPIRY]
-    for sid in expired:
-        del sessions[sid]
+    return "\n".join(header) + "\n" + body
 
 # -------------------------
-# Handlers
+# Bot Handlers
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
-
-    keyboard = [[InlineKeyboardButton("📢 Join Channel", url="https://t.me/freeotpss")]]
+    keyboard = [
+        [InlineKeyboardButton("☘ Channel", url="https://t.me/freeotpss")],
+        [InlineKeyboardButton("📌 Feature 1", callback_data="feature1")],
+        [InlineKeyboardButton("📌 Feature 2", callback_data="feature2")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "👋 *Welcome!*\n\n"
-        "Send me a `.txt` file containing numbers or type them directly.\n"
-        "I'll check which are registered in the database.\n\n"
-        "🧩 Features:\n"
-        "• File Upload Comparison\n"
-        "• Single/Multi Number Search\n"
-        "• Admin Tools: /add, /remove, /stats, /broadcast, /exportdb",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+        "🤖 Welcome! Send me a .txt file with numbers (one per line).\n"
+        "I'll compare with the DB and show unmatched numbers with pagination.",
+        reply_markup=reply_markup
     )
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data or ""
+    if data == "feature1":
+        await query.edit_message_text("Feature 1 coming soon 🚀")
+    elif data == "feature2":
+        await query.edit_message_text("Feature 2 under development 🔧")
+    else:
+        # For any other (should be handled elsewhere)
+        await query.answer()
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
 
+    if not update.message.document:
+        await update.message.reply_text("❌ Please send a .txt file.")
+        return
+
     doc = update.message.document
-    if not doc.file_name.lower().endswith(".txt"):
+    file_name = doc.file_name or ""
+    if not file_name.lower().endswith(".txt"):
         await update.message.reply_text("❌ Only .txt files are supported.")
         return
 
+    # download file
     file_obj = await doc.get_file()
-    path = f"/tmp/{uuid.uuid4().hex}.txt"
-    await file_obj.download_to_drive(path)
+    tmp_path = f"/tmp/{doc.file_unique_id}.txt"
+    await file_obj.download_to_drive(tmp_path)
 
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        numbers = [line.strip() for line in f if line.strip().isdigit()]
+    # Read numbers (simple normalization: take only digits)
+    file_numbers = []
+    with open(tmp_path, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            num = "".join(ch for ch in line.strip() if ch.isdigit())
+            if num:
+                file_numbers.append(num)
 
-    total = len(numbers)
+    total_count = len(file_numbers)
     mongo_numbers = get_mongo_numbers()
-    matched = [n for n in numbers if n in mongo_numbers]
-    unmatched = [n for n in numbers if n not in mongo_numbers]
+    matched = [n for n in file_numbers if n in mongo_numbers]
+    unmatched = [n for n in file_numbers if n not in mongo_numbers]
 
-    if not unmatched:
-        await update.message.reply_text("✅ All numbers matched.")
-        os.remove(path)
+    matched_count = len(matched)
+    unmatched_count = len(unmatched)
+
+    # build initial summary and (if unmatched) first page
+    summary_lines = [
+        "📊 Comparison Report",
+        "",
+        f"📁 Total Numbers in File: {total_count}",
+        f"✅ Registered Numbers: {matched_count}",
+        f"❌ Not Registered Numbers: {unmatched_count}",
+        ""
+    ]
+
+    if unmatched_count == 0:
+        await update.message.reply_text("\n".join(summary_lines))
+        os.remove(tmp_path)
         return
 
+    # create session
     session_id = uuid.uuid4().hex
     sessions[session_id] = {
+        "chat_id": update.effective_chat.id,
+        "user_id": user.id,
         "unmatched": unmatched,
+        "per_page": PER_PAGE,
         "created_at": datetime.utcnow(),
-        "total": total,
-        "matched": len(matched)
+        "total_count": total_count,
+        "matched_count": matched_count
     }
 
-    total_pages = (len(unmatched) + PER_PAGE - 1) // PER_PAGE
-    first_page = unmatched[:PER_PAGE]
+    # prepare first page
+    total_pages = (unmatched_count + PER_PAGE - 1) // PER_PAGE
+    page = 1
+    start_idx = (page - 1) * PER_PAGE
+    end_idx = start_idx + PER_PAGE
+    page_items = unmatched[start_idx:end_idx]
 
-    text = format_page_text(first_page, 1, total_pages, total, len(matched))
-    keyboard = make_pagination_keyboard(session_id, 1, total_pages)
+    text = format_page_text(page_items, page, total_pages, total_count, matched_count)
+    keyboard = make_pagination_keyboard(session_id, page, total_pages)
 
+    # send combined message (summary + page)
     await update.message.reply_text(text, reply_markup=keyboard)
-    os.remove(path)
 
-async def paginate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # cleanup temp file
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
+
+async def callback_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    parts = query.data.split(":")
-    if len(parts) != 3:
+    data = query.data or ""
+    # callback formats:
+    # page:<session_id>:<page>
+    # back:<session_id>
+    # noop:<session_id>
+    parts = data.split(":")
+    action = parts[0] if parts else ""
+    if len(parts) >= 2:
+        session_id = parts[1]
+    else:
+        await query.answer()
         return
 
-    _, session_id, page_str = parts
-    if session_id not in sessions:
-        await query.edit_message_text("⚠️ Session expired.")
+    session = sessions.get(session_id)
+    if not session:
+        await query.edit_message_text("Session expired or not found. Please upload file again.")
         return
 
-    try:
-        page = int(page_str)
-    except ValueError:
+    if action == "noop":
+        # do nothing (disabled button)
+        await query.answer()
         return
 
-    s = sessions[session_id]
-    unmatched = s["unmatched"]
-    total = s["total"]
-    matched = s["matched"]
-    total_pages = (len(unmatched) + PER_PAGE - 1) // PER_PAGE
-    start = (page - 1) * PER_PAGE
-    end = start + PER_PAGE
-    items = unmatched[start:end]
-    text = format_page_text(items, page, total_pages, total, matched)
-    keyboard = make_pagination_keyboard(session_id, page, total_pages)
-    await query.edit_message_text(text, reply_markup=keyboard)
+    if action == "back":
+        # go back to main menu (edit message to show a simple menu)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("☘ Channel", url="https://t.me/freeotpss")],
+            [InlineKeyboardButton("📁 Upload File", callback_data="noop:"+session_id)],
+            [InlineKeyboardButton("🔁 Start Over", callback_data="noop:"+session_id)]
+        ])
+        await query.edit_message_text(
+            "🔙 Back to menu. Send /start to see commands or upload another file.",
+            reply_markup=keyboard
+        )
+        # remove session to free memory
+        try:
+            del sessions[session_id]
+        except KeyError:
+            pass
+        return
 
+    if action == "page":
+        # expected third part is page number
+        if len(parts) < 3:
+            await query.answer()
+            return
+        try:
+            page = int(parts[2])
+        except ValueError:
+            await query.answer()
+            return
+
+        unmatched = session["unmatched"]
+        total_count = session.get("total_count", len(unmatched))
+        matched_count = session.get("matched_count", 0)
+        total_pages = (len(unmatched) + PER_PAGE - 1) // PER_PAGE
+        # clamp page
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+
+        start_idx = (page - 1) * PER_PAGE
+        end_idx = start_idx + PER_PAGE
+        page_items = unmatched[start_idx:end_idx]
+
+        text = format_page_text(page_items, page, total_pages, total_count, matched_count)
+        keyboard = make_pagination_keyboard(session_id, page, total_pages)
+
+        # edit the same message with new page content
+        await query.edit_message_text(text, reply_markup=keyboard)
+        return
+
+    # fallback
+    await query.answer()
+
+# -------------------------
+# Search single/multiple numbers via plain text message
+# -------------------------
 async def search_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
-    text = update.message.text.strip()
-
-    nums = [n for n in text.replace(",", "\n").split("\n") if n.strip().isdigit()]
+    text = update.message.text or ""
+    # allow comma or newline separated numbers; normalize digits only
+    parts = [p.strip() for p in text.replace(",", "\n").split("\n") if p.strip()]
+    nums = []
+    for p in parts:
+        n = "".join(ch for ch in p if ch.isdigit())
+        if n:
+            nums.append(n)
     if not nums:
-        await update.message.reply_text("❌ Please send valid numbers.")
+        await update.message.reply_text("Send one or more numbers (comma or newline separated).")
         return
 
     mongo_numbers = get_mongo_numbers()
     matched = [n for n in nums if n in mongo_numbers]
     unmatched = [n for n in nums if n not in mongo_numbers]
 
-    msg = (
-        f"📊 Search Report\n\n"
-        f"📁 Total: {len(nums)}\n"
-        f"✅ Registered: {len(matched)}\n"
-        f"❌ Not Registered: {len(unmatched)}\n\n"
-    )
-
+    lines = [
+        "📊 Search Report",
+        "",
+        f"📁 Total Numbers Sent: {len(nums)}",
+        f"✅ Registered Numbers: {len(matched)}",
+        f"❌ Not Registered Numbers: {len(unmatched)}",
+        ""
+    ]
     if unmatched:
-        txt = "\n".join(unmatched[:50])
-        if len(unmatched) > 50:
-            txt += f"\n...and {len(unmatched)-50} more"
-        msg += txt
+        # show all (if many, truncate)
+        txt = "\n".join(unmatched)
+        if len(txt) > 3500:
+            txt = txt[:3500] + "\n…and more"
+        lines.append(txt)
 
-    await update.message.reply_text(msg)
+    await update.message.reply_text("\n".join(lines))
 
 # -------------------------
-# Admin Commands
+# Admin: stats & broadcast
 # -------------------------
-async def add_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("⛔ Unauthorized")
-    if not context.args:
-        return await update.message.reply_text("Usage: /add <number>")
-    num = context.args[0]
-    numbers_collection.insert_one({"number": num})
-    await update.message.reply_text(f"✅ Added number: {num}")
-
-async def remove_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("⛔ Unauthorized")
-    if not context.args:
-        return await update.message.reply_text("Usage: /remove <number>")
-    num = context.args[0]
-    res = numbers_collection.delete_one({"number": num})
-    msg = "🗑️ Removed successfully" if res.deleted_count else "❌ Not found"
-    await update.message.reply_text(msg)
-
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("⛔ Unauthorized")
+    user = update.effective_user
+    if user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not admin.")
+        return
     total_numbers = numbers_collection.count_documents({})
     total_users = users_collection.count_documents({})
-    await update.message.reply_text(f"📊 Stats\n\n👥 Users: {total_users}\n📞 Numbers: {total_numbers}")
+    await update.message.reply_text(
+        f"📊 Bot Stats\n\nTotal Numbers in DB: {total_numbers}\nTotal Users: {total_users}"
+    )
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("⛔ Unauthorized")
-    msg = " ".join(context.args)
-    if not msg:
-        return await update.message.reply_text("Usage: /broadcast <message>")
-    users = users_collection.find()
+    user = update.effective_user
+    if user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not admin.")
+        return
+    text = " ".join(context.args or [])
+    if not text:
+        await update.message.reply_text("Usage: /broadcast <message>")
+        return
+    users = users_collection.find({}, {"user_id": 1})
     sent = 0
     for u in users:
         try:
-            await context.bot.send_message(chat_id=u["user_id"], text=msg)
+            await context.bot.send_message(u["user_id"], text)
             sent += 1
         except Exception:
             continue
-    await update.message.reply_text(f"📢 Sent to {sent} users")
+    await update.message.reply_text(f"✅ Broadcast sent to {sent} users")
 
-async def exportdb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("⛔ Unauthorized")
-    nums = [doc["number"] for doc in numbers_collection.find({}, {"number": 1})]
-    path = "/tmp/export_numbers.txt"
-    with open(path, "w") as f:
-        f.write("\n".join(nums))
-    await update.message.reply_document(InputFile(path, filename="numbers.txt"), caption=f"📤 Exported {len(nums)} numbers")
-    os.remove(path)
-
-# -------------------------
-# Bot Starter
-# -------------------------
-def start_bot():
+def start_telegram_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(CommandHandler("add", add_number))
-    app_bot.add_handler(CommandHandler("remove", remove_number))
-    app_bot.add_handler(CommandHandler("stats", stats_cmd))
-    app_bot.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app_bot.add_handler(CommandHandler("exportdb", exportdb))
+    app_bot.add_handler(CallbackQueryHandler(button_handler, pattern="^(feature1|feature2)$"))
+    app_bot.add_handler(CallbackQueryHandler(callback_pagination, pattern="^(page|back|noop):"))
     app_bot.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_number))
-    app_bot.add_handler(CallbackQueryHandler(paginate, pattern=r"^page:"))
-
-    logger.info("🤖 Bot Running...")
+    app_bot.add_handler(CommandHandler("stats", stats_cmd))
+    app_bot.add_handler(CommandHandler("broadcast", broadcast_cmd))
+    logger.info("🤖 Telegram Bot running...")
     app_bot.run_polling()
 
-
 if __name__ == "__main__":
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080), daemon=True).start()
-    start_bot()
+    # run flask in background for Render health checks
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))), daemon=True)
+    flask_thread.start()
+
+    start_telegram_bot()
