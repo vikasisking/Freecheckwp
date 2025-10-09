@@ -50,27 +50,10 @@ users_collection = db[USERS_COLLECTION]
 # Bot Config
 # -------------------------
 BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"   # <-- replace
-ADMIN_IDS = [8093935563]             # <-- replace with your Telegram numeric admin IDs
-
-# -------------------------
-# In-memory sessions for pagination
-# Structure:
-# sessions = {
-#   session_id: {
-#       "chat_id": int,
-#       "user_id": int,
-#       "unmatched": [str,...],
-#       "per_page": 50,
-#       "created_at": datetime,
-#   }
-# }
-# -------------------------
+ADMIN_IDS = [8093935563]            
 sessions = {}
 PER_PAGE = 50
 
-# -------------------------
-# Utility helpers
-# -------------------------
 def save_user(user_id, username):
     try:
         users_collection.update_one(
@@ -127,15 +110,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user.id, user.username)
     keyboard = [
         [InlineKeyboardButton("☘ Channel", url="https://t.me/freeotpss")],
-        [InlineKeyboardButton("📌 Feature 1", callback_data="feature1")],
-        [InlineKeyboardButton("📌 Feature 2", callback_data="feature2")]
+        [InlineKeyboardButton("🧑‍💻 Owner", url="https://t.me/hiden_25")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🤖 Welcome! Send me a .txt file with numbers (one per line).\n"
-        "I'll compare with the DB and show unmatched numbers with pagination.",
-        reply_markup=reply_markup
-    )
+    "🤖 Welcome! Send me a .txt file containing numbers. "
+    "If you include one or more two-digit numbers, it will be checked. "
+    "The bot will tell you which numbers are not registered.\n\n"
+    "Only files sent in this channel will work; the bot will not work in other channels.\n"
+    "@freeotpss",
+    reply_markup=reply_markup
+)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
