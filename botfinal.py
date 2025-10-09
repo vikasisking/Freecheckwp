@@ -97,6 +97,7 @@ def format_page_text(page_items, page: int, total_pages: int, total_count: int, 
         f"❌ Not Registered Numbers: {total_count - matched_count}",
         "",
         f"📌 Showing page {page} / {total_pages} (up to {PER_PAGE} per page)",
+        f"Here Not Registered Number List Below: {total_count - matched_count}",
         ""
     ]
     body = "\n".join(page_items) if page_items else "(No unmatched numbers on this page)"
