@@ -5,14 +5,14 @@ import uuid
 from flask import Flask, Response
 from pymongo import MongoClient
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup
+    Update, InlineKeyboardButton, InlineQueryResultArticle, InputTextMessageContent, InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-from datetime import datetime
-
+from datetime import datetime, timedelta
+import uuid
 # -------------------------
 # Logging
 # -------------------------
@@ -50,7 +50,8 @@ users_collection = db[USERS_COLLECTION]
 # Bot Config
 # -------------------------
 BOT_TOKEN = "7784541637:AAGPk4zNAryYKrk_EIdyNfdmpE6fqWQMcMA"   # <-- replace
-ADMIN_IDS = [8093935563]            
+ADMIN_IDS = [8093935563]     
+ADMIN_ID = 8093935563
 sessions = {}
 PER_PAGE = 50
 
@@ -166,7 +167,16 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+
+    # 🔒 Force Join Check
+    if not await is_user_joined(context.bot, user.id):
+        await update.message.reply_text(
+            f"⚠️ Please join our channel first to use this feature:\n👉 https://t.me/{FORCE_JOIN}"
+        )
+        return
+
     save_user(user.id, user.username)
+    log_file_upload(user.id, user.username)
 
     if not update.message.document:
         await update.message.reply_text("❌ Please send a .txt file.")
@@ -178,12 +188,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Only .txt files are supported.")
         return
 
-    # download file
+    # 📥 Download file to temp
     file_obj = await doc.get_file()
     tmp_path = f"/tmp/{doc.file_unique_id}.txt"
     await file_obj.download_to_drive(tmp_path)
 
-    # Read numbers (simple normalization: take only digits)
+    # 📄 Read and clean numbers
     file_numbers = []
     with open(tmp_path, "r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
@@ -199,19 +209,46 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matched_count = len(matched)
     unmatched_count = len(unmatched)
 
-    # build initial summary and (if unmatched) first page
+    # 📊 Summary
     summary_lines = [
-        "📊 Comparison Report",
+        "📊 *Comparison Report*",
         "",
-        f"📁 Total Numbers in File: {total_count}",
-        f"✅ Registered Numbers: {matched_count}",
-        f"❌ Not Registered Numbers: {unmatched_count}",
+        f"📁 Total Numbers in File: `{total_count}`",
+        f"✅ Registered Numbers: `{matched_count}`",
+        f"❌ Not Registered Numbers: `{unmatched_count}`",
         ""
     ]
 
+    # If no unmatched numbers
     if unmatched_count == 0:
-        await update.message.reply_text("\n".join(summary_lines))
+        await update.message.reply_text("\n".join(summary_lines), parse_mode="Markdown")
         os.remove(tmp_path)
+        return
+
+    # 🧾 Paginated view for unmatched numbers
+    page_size = 50
+    total_pages = (unmatched_count + page_size - 1) // page_size
+    first_page = unmatched[:page_size]
+
+    text = "\n".join(summary_lines)
+    text += f"📋 Showing 1/{total_pages} pages of *unregistered numbers:*\n\n"
+    text += "\n".join(first_page)
+
+    keyboard = []
+    if total_pages > 1:
+        keyboard.append([
+            InlineKeyboardButton("➡️ Next", callback_data=f"page:1")
+        ])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+    # Save unmatched for pagination callback
+    context.user_data["unmatched_numbers"] = unmatched
+    context.user_data["total_pages"] = total_pages
+    context.user_data["page_size"] = page_size
+
+    os.remove(tmp_path)
         return
 
     # create session
@@ -301,7 +338,35 @@ async def callback_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # fallback
     await query.answer()
+# -------------------------
+# Usage Tracking
+# -------------------------
 
+def log_file_upload(user_id, username):
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    collection = db["usage_logs"]
+    collection.update_one(
+        {"user_id": user_id, "date": today},
+        {"$inc": {"uploads": 1}, "$set": {"username": username}},
+        upsert=True
+    )
+
+def get_today_usage():
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    collection = db["usage_logs"]
+    return collection.aggregate([
+        {"$match": {"date": today}},
+        {"$group": {"_id": None, "total_uploads": {"$sum": "$uploads"}}}
+    ])
+
+def get_top_users(limit=10):
+    collection = db["usage_logs"]
+    pipeline = [
+        {"$group": {"_id": "$user_id", "username": {"$first": "$username"}, "uploads": {"$sum": "$uploads"}}},
+        {"$sort": {"uploads": -1}},
+        {"$limit": limit}
+    ]
+    return list(collection.aggregate(pipeline))
 # -------------------------
 # Search single/multiple numbers via plain text message
 # -------------------------
@@ -341,6 +406,27 @@ async def search_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines))
 
+async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.inline_query.query.strip()
+    if not query:
+        return
+
+    # simulate search in DB
+    number_found = db["numbers"].find_one({"number": query})
+    if number_found:
+        text = f"✅ {query} is registered."
+    else:
+        text = f"❌ {query} not found in database."
+
+    results = [
+        InlineQueryResultArticle(
+            id=str(uuid.uuid4()),
+            title="Check number",
+            description=text,
+            input_message_content=InputTextMessageContent(text)
+        )
+    ]
+    await update.inline_query.answer(results, cache_time=0)
 # -------------------------
 # Admin: stats & broadcast
 # -------------------------
@@ -374,14 +460,47 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text(f"✅ Broadcast sent to {sent} users")
 
+async def active_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("🚫 Admin only.")
+    active_users = list(active_usernames) if 'active_usernames' in globals() else []
+    if not active_users:
+        await update.message.reply_text("🟢 No users currently active.")
+    else:
+        await update.message.reply_text("👥 Active users:\n" + "\n".join(active_users))
+
+async def usage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("🚫 Admin only.")
+    result = list(get_today_usage())
+    total = result[0]['total_uploads'] if result else 0
+    await update.message.reply_text(f"📊 Files processed today: {total}")
+
+async def topusers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("🚫 Admin only.")
+    top_users = get_top_users()
+    if not top_users:
+        await update.message.reply_text("No usage data yet.")
+        return
+    msg = "🏆 Top Users:\n\n"
+    for i, user in enumerate(top_users, start=1):
+        msg += f"{i}. @{user['username']} — {user['uploads']} files\n"
+    await update.message.reply_text(msg)
+
 def start_telegram_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(CommandHandler("active", active_cmd))
+    app_bot.add_handler(CommandHandler("usage", usage_cmd))
+    app_bot.add_handler(CommandHandler("topusers", topusers_cmd))
     app_bot.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app_bot.add_handler(CallbackQueryHandler(callback_pagination, pattern="^(page|back|noop):"))
     app_bot.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_number))
     app_bot.add_handler(CommandHandler("stats", stats_cmd))
+    app_bot.add_handler(InlineQueryHandler(inline_search))
+    app_bot.add_handler(InlineQueryHandler(inline_search))
     app_bot.add_handler(CommandHandler("broadcast", broadcast_cmd))
     logger.info("🤖 Telegram Bot running with Force Join...")
     app_bot.run_polling()
