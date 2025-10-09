@@ -40,7 +40,7 @@ MONGO_URI = "mongodb+srv://number25:number25@cluster0.kdeklci.mongodb.net/"
 DB_NAME = "otp_database"
 COLLECTION_NAME = "numbers"
 USERS_COLLECTION = "users"
-
+FORCE_JOIN = "freeotpss" 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 numbers_collection = db[COLLECTION_NAME]
@@ -105,35 +105,64 @@ def format_page_text(page_items, page: int, total_pages: int, total_count: int, 
 
 # -------------------------
 # Bot Handlers
-# -------------------------
+# ------------------------
+async def is_user_joined(bot, user_id):
+    try:
+        member = await bot.get_chat_member(f"@{FORCE_JOIN}", user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except Exception as e:
+        logger.warning(f"Join check failed for {user_id}: {e}")
+        return False
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
+
+    # 🔒 Force join check
+    if not await is_user_joined(context.bot, user.id):
+        join_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{FORCE_JOIN}")],
+            [InlineKeyboardButton("✅ I Joined", callback_data="check_join")]
+        ])
+        await update.message.reply_text(
+            f"⚠️ To use this bot, please join our official channel first:\n👉 https://t.me/{FORCE_JOIN}\n\n"
+            "After joining, click 'I Joined' below.",
+            reply_markup=join_keyboard
+        )
+        return
+
+    # If joined — show main message
     keyboard = [
-        [InlineKeyboardButton("☘ Channel", url="https://t.me/freeotpss")],
+        [InlineKeyboardButton("☘ Channel", url=f"https://t.me/{FORCE_JOIN}")],
         [InlineKeyboardButton("🧑‍💻 Owner", url="https://t.me/hiden_25")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-    "🤖 Welcome! Send me a .txt file containing numbers. "
-    "If you include one or more two-digit numbers, it will be checked. "
-    "The bot will tell you which numbers are not registered.\n\n"
-    "Only files sent in this channel will work; the bot will not work in other channels.\n"
-    "@freeotpss",
-    reply_markup=reply_markup
-)
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        "🤖 Welcome! Send me a .txt file containing numbers. "
+        "If you include one or more two-digit numbers, it will be checked. "
+        "The bot will tell you which numbers are not registered.\n\n"
+        "Only files sent in this channel will work; the bot will not work in other channels.\n"
+        f"@{FORCE_JOIN}",
+        reply_markup=reply_markup
+    )
+    
+async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user = query.from_user
     await query.answer()
-    data = query.data or ""
-    if data == "feature1":
-        await query.edit_message_text("Feature 1 coming soon 🚀")
-    elif data == "feature2":
-        await query.edit_message_text("Feature 2 under development 🔧")
+
+    if not await is_user_joined(context.bot, user.id):
+        await query.edit_message_text(
+            "❌ You haven't joined yet.\n\nPlease join the channel first and then click 'I Joined' again.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{FORCE_JOIN}")],
+                [InlineKeyboardButton("✅ I Joined", callback_data="check_join")]
+            ])
+        )
     else:
-        # For any other (should be handled elsewhere)
-        await query.answer()
+        await query.edit_message_text(
+            "✅ Great! You have joined the channel.\nNow you can use the bot freely.\n\nSend me a .txt file to begin."
+        )
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -220,10 +249,6 @@ async def callback_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     data = query.data or ""
-    # callback formats:
-    # page:<session_id>:<page>
-    # back:<session_id>
-    # noop:<session_id>
     parts = data.split(":")
     action = parts[0] if parts else ""
     if len(parts) >= 2:
@@ -352,13 +377,13 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def start_telegram_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(CallbackQueryHandler(button_handler, pattern="^(feature1|feature2)$"))
+    app_bot.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app_bot.add_handler(CallbackQueryHandler(callback_pagination, pattern="^(page|back|noop):"))
     app_bot.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_number))
     app_bot.add_handler(CommandHandler("stats", stats_cmd))
     app_bot.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    logger.info("🤖 Telegram Bot running...")
+    logger.info("🤖 Telegram Bot running with Force Join...")
     app_bot.run_polling()
 
 if __name__ == "__main__":
