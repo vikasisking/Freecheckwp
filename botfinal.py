@@ -54,6 +54,7 @@ ADMIN_IDS = [8093935563]
 ADMIN_ID = 8093935563
 sessions = {}
 PER_PAGE = 50
+active_usernames = set()
 
 def save_user(user_id, username):
     try:
@@ -223,7 +224,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if unmatched_count == 0:
         await update.message.reply_text("\n".join(summary_lines), parse_mode="Markdown")
         os.remove(tmp_path)
-        return
 
     # 🧾 Paginated view for unmatched numbers
     page_size = 50
@@ -354,10 +354,11 @@ def log_file_upload(user_id, username):
 def get_today_usage():
     today = datetime.utcnow().strftime("%Y-%m-%d")
     collection = db["usage_logs"]
-    return collection.aggregate([
+    result = list(collection.aggregate([
         {"$match": {"date": today}},
         {"$group": {"_id": None, "total_uploads": {"$sum": "$uploads"}}}
-    ])
+    ]))
+    return result
 
 def get_top_users(limit=10):
     collection = db["usage_logs"]
@@ -499,7 +500,6 @@ def start_telegram_bot():
     app_bot.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_number))
     app_bot.add_handler(CommandHandler("stats", stats_cmd))
-    app_bot.add_handler(InlineQueryHandler(inline_search))
     app_bot.add_handler(InlineQueryHandler(inline_search))
     app_bot.add_handler(CommandHandler("broadcast", broadcast_cmd))
     logger.info("🤖 Telegram Bot running with Force Join...")
