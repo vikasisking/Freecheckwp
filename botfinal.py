@@ -221,14 +221,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📁 Total Numbers in File: `{total_count}`\n"
             f"✅ Registered Numbers: `{matched_count}`\n"
             f"❌ Not Registered Numbers: `{unmatched_count}`\n\n"
-            f"🗂️ Not Registered Number List Below: {total_count - matched_count}",
+            "🎉 All numbers are registered!",
             parse_mode="Markdown"
         )
-       os.remove(tmp_path)
-       return
+        os.remove(tmp_path)
+        return
 
-
-    # create session for pagination
+    # Pagination
     session_id = uuid.uuid4().hex
     sessions[session_id] = {
         "chat_id": update.effective_chat.id,
