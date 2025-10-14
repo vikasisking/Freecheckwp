@@ -343,7 +343,8 @@ async def search_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📁 Total Numbers Sent: {len(nums)}",
         f"✅ Registered Numbers: {len(matched)}",
         f"❌ Not Registered Numbers: {len(unmatched)}",
-        ""
+        "",
+        f"🗂️ Not Registered Number List Below: {total_count - matched_count}"
     ]
     if unmatched:
         txt = "\n".join(unmatched)
@@ -400,14 +401,6 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text(f"✅ Broadcast sent to {sent} users")
 
-async def active_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("🚫 Admin only.")
-    if not active_usernames:
-        await update.message.reply_text("🟢 No users currently active.")
-    else:
-        await update.message.reply_text("👥 Active users:\n" + "\n".join(active_usernames))
-
 async def usage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return await update.message.reply_text("🚫 Admin only.")
@@ -433,7 +426,6 @@ async def topusers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def start_telegram_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(CommandHandler("active", active_cmd))
     app_bot.add_handler(CommandHandler("usage", usage_cmd))
     app_bot.add_handler(CommandHandler("topusers", topusers_cmd))
     app_bot.add_handler(CommandHandler("stats", stats_cmd))
