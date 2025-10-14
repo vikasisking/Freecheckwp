@@ -94,6 +94,7 @@ def format_page_text(page_items, page: int, total_pages: int, total_count: int, 
         "📊 Comparison Report",
         "",
         f"📁 Total Numbers in File: {total_count}",
+        f"✅ Registered Numbers: {matched_count}\n,"
         f"❌ Not Registered Numbers: {total_count - matched_count}",
         "",
         f"📌 Showing page {page} / {total_pages}",
@@ -219,7 +220,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📊 *Comparison Report*\n\n"
             f"📁 Total Numbers in File: `{total_count}`\n"
             f"✅ Registered Numbers: `{matched_count}`\n"
-            f"❌ Not Registered Numbers: `{unmatched_count}`",
+            f"❌ Not Registered Numbers: `{unmatched_count}`\n\n",
+            f"Not Registered Number List Below: {total_count - matched_count}",
             parse_mode="Markdown"
         )
         os.remove(tmp_path)
