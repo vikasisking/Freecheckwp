@@ -130,8 +130,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("✅ I Joined", callback_data="check_join")]
         ])
         await update.message.reply_text(
-            f"⚠️ To use this bot, please join our *main channel* first:\n👉 https://t.me/{FORCE_JOIN}\n\n"
-            f"📢 Also, check our updates channel:\n👉 https://t.me/{SECOND_CHANNEL}\n\n"
+            f"⚠️ To use this bot, please join our *Backup and main channel*\n\n"
             "After joining, click '✅ I Joined' below.",
             reply_markup=join_keyboard,
             parse_mode="Markdown"
