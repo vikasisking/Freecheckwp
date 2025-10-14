@@ -94,7 +94,6 @@ def format_page_text(page_items, page: int, total_pages: int, total_count: int, 
         "📊 Comparison Report",
         "",
         f"📁 Total Numbers in File: {total_count}",
-        f"✅ Registered Numbers: {matched_count}",
         f"❌ Not Registered Numbers: {total_count - matched_count}",
         "",
         f"📌 Showing page {page} / {total_pages}",
@@ -150,7 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 Welcome! Send me a .txt file containing numbers. "
         "The bot will tell you which numbers are not registered.\n\n"
         "Only files sent here will work; not in other channels.\n"
-        f"@{FORCE_JOIN}", 
+        "https://t.me/+zLzE9PdovjhjYzFl", 
         reply_markup=reply_markup 
         )
 
@@ -168,7 +167,10 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     else:
         await query.edit_message_text(
-            "✅ Great! You have joined the channel.\nNow you can use the bot freely.\nSend a .txt file to begin."
+        "🤖 Welcome! Send me a .txt file containing numbers."
+        "The bot will tell you which numbers are not registered.\n\n"
+        "Only files sent here will work; not in other channels.\n"
+        "https://t.me/+zLzE9PdovjhjYzFl", 
         )
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
