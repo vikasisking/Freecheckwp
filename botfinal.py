@@ -336,22 +336,27 @@ async def search_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matched = [n for n in nums if n in mongo_numbers]
     unmatched = [n for n in nums if n not in mongo_numbers]
 
+    total_count = len(nums)
+    matched_count = len(matched)
+    unmatched_count = len(unmatched)
+
     lines = [
-        "📊 Search Report",
+        "📊 *Search Report*",
         "",
-        f"📁 Total Numbers Sent: {len(nums)}",
-        f"✅ Registered Numbers: {len(matched)}",
-        f"❌ Not Registered Numbers: {len(unmatched)}",
+        f"📁 *Total Numbers Sent:* `{total_count}`",
+        f"✅ *Registered Numbers:* `{matched_count}`",
+        f"❌ *Not Registered Numbers:* `{unmatched_count}`",
         "",
-        f"🗂️ Not Registered Number List Below: {total_count - matched_count}"
+        "🗂️ *Not Registered Number List Below:*"
     ]
+
     if unmatched:
         txt = "\n".join(unmatched)
         if len(txt) > 3500:
             txt = txt[:3500] + "\n…and more"
-        lines.append(txt)
+        lines.append(f"```{txt}```")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip()
