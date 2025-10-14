@@ -126,7 +126,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_joined(context.bot, user.id):
         join_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 Join Backup Channel", url=f"https://t.me/{SECOND_CHANNEL}")],
-            [InlineKeyboardButton("🆕 Join MAin Channel", url=f"https://t.me/{FORCE_JOIN}")],
+            [InlineKeyboardButton("🚀 Join Main Channel", url=f"https://t.me/{FORCE_JOIN}")],
             [InlineKeyboardButton("✅ I Joined", callback_data="check_join")]
         ])
         await update.message.reply_text(
