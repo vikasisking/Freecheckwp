@@ -119,20 +119,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
 
+    # 👇 Replace this with your 2nd (optional) channel username
+    SECOND_CHANNEL = "+8lSeS1z-GMxhYjU1"  
+
+    # Check force join
     if not await is_user_joined(context.bot, user.id):
         join_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{FORCE_JOIN}")],
+            [InlineKeyboardButton("📢 Join Backup Channel", url=f"https://t.me/{SECOND_CHANNEL}")],
+            [InlineKeyboardButton("🆕 Join MAin Channel", url=f"https://t.me/{FORCE_JOIN}")],
             [InlineKeyboardButton("✅ I Joined", callback_data="check_join")]
         ])
         await update.message.reply_text(
-            f"⚠️ To use this bot, please join our official channel first:\n👉 https://t.me/{FORCE_JOIN}\n\n"
-            "After joining, click 'I Joined' below.",
-            reply_markup=join_keyboard
+            f"⚠️ To use this bot, please join our *main channel* first:\n👉 https://t.me/{FORCE_JOIN}\n\n"
+            f"📢 Also, check our updates channel:\n👉 https://t.me/{SECOND_CHANNEL}\n\n"
+            "After joining, click '✅ I Joined' below.",
+            reply_markup=join_keyboard,
+            parse_mode="Markdown"
         )
         return
 
+    # Main menu after joined
     keyboard = [
-        [InlineKeyboardButton("☘ Channel", url=f"https://t.me/{FORCE_JOIN}")],
+        [
+            InlineKeyboardButton("📢 Main Channel", url=f"https://t.me/{FORCE_JOIN}"),
+            InlineKeyboardButton("🆕 Backup Channel", url=f"https://t.me/{SECOND_CHANNEL}")
+        ],
         [InlineKeyboardButton("🧑‍💻 Owner", url="https://t.me/hiden_25")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -140,9 +151,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 Welcome! Send me a .txt file containing numbers. "
         "The bot will tell you which numbers are not registered.\n\n"
         "Only files sent here will work; not in other channels.\n"
-        f"@{FORCE_JOIN}",
-        reply_markup=reply_markup
-    )
+        f"@{FORCE_JOIN}", 
+        reply_markup=reply_markup 
+        )
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
