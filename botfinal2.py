@@ -127,7 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📢 Main Channel", url="https://t.me/TEAM56RJ"),
             InlineKeyboardButton("🆕 Backup Channel", url="https://t.me/RishiOfficial56")
         ],
-        [InlineKeyboardButton("👨‍💻 Bot Developer", url="https://t.me/hiden_25")]
+        [InlineKeyboardButton("👨‍💻 Bot Developer", url="https://t.me/RISHIHEARTMAKER")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -406,5 +406,6 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))), daemon=True)
     flask_thread.start()
     start_telegram_bot()
+
 
 
