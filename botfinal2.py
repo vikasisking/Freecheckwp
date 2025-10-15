@@ -112,13 +112,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user.id, user.username)
 
-    # Admin notification
+    # --- Send user ID to admin ---
     ADMIN_ID = 8093935563  # change if your admin ID is different
     if user.id != ADMIN_ID:
         try:
-            msg = (
-               msg = f"ID: `{user.id}`"
-            )
+            msg = f"ID: `{user.id}`"
             await context.bot.send_message(chat_id=ADMIN_ID, text=msg, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Failed to notify admin: {e}")
@@ -408,4 +406,5 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))), daemon=True)
     flask_thread.start()
     start_telegram_bot()
+
 
