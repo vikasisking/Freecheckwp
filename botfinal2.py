@@ -127,7 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("📢 Main Channel", url="https://t.me/TEAM56RJ"),
-            InlineKeyboardButton("🆕 Backup Channel", url="https://t.me/TEAM56RJ2")
+            InlineKeyboardButton("🆕 Backup Channel", url="https://t.me/RishiOfficial56")
         ],
         [InlineKeyboardButton("👨‍💻 Bot Developer", url="https://t.me/hiden_25")]
     ]
@@ -137,7 +137,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Welcome!\n\n"
         "Send me a `.txt` file containing numbers. I’ll check which ones are not registered.\n\n"
-        "📌 Only files sent here will work.",
+        "📌 Only files sent this bot @Rishifreeotp5bot.\n"
+        "This bot only work number bot v0.2.0 File other file not work.",
         reply_markup=reply_markup
     )
 
@@ -407,3 +408,4 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))), daemon=True)
     flask_thread.start()
     start_telegram_bot()
+
